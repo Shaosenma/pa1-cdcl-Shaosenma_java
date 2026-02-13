@@ -3,134 +3,115 @@ package edu.utexas.cs.alr.util;
 import java.util.*;
 
 /**
- * Represents a CNF clause as a list of literals.
- * Literals are represented as long values:
- * - Positive literal: var_id (e.g., 5 for x5)
- * - Negative literal: -var_id (e.g., -5 for ¬x5)
+ * CNF clause representation using literal list.
+ * Positive literal = variable ID, Negative literal = -variable ID
  */
 public class Clause {
-    private final List<Long> literals;
+    private final List<Long> lits;
 
     public Clause(List<Long> literals) {
-        this.literals = new ArrayList<>(literals);
+        this.lits = new ArrayList<>(literals);
     }
 
     public Clause(Set<Long> literals) {
-        this.literals = new ArrayList<>(literals);
+        this.lits = new ArrayList<>(literals);
     }
 
     public List<Long> getLiterals() {
-        return Collections.unmodifiableList(literals);
+        return Collections.unmodifiableList(lits);
     }
 
     public int size() {
-        return literals.size();
+        return lits.size();
     }
 
     public boolean isEmpty() {
-        return literals.isEmpty();
+        return lits.isEmpty();
     }
 
     /**
-     * Check if this clause is satisfied under the given assignment.
-     * A clause is satisfied if at least one literal is true.
+     * Check if at least one literal evaluates to true.
      */
-    public boolean isSatisfied(Assignment assignment) {
-        for (long lit : literals) {
-            long var = Math.abs(lit);
-            Boolean value = assignment.getValue(var);
+    public boolean isSatisfied(Assignment assign) {
+        for (long lit : lits) {
+            long varId = Math.abs(lit);
+            Boolean val = assign.getValue(varId);
 
-            if (value != null) {
-                boolean litValue = (lit > 0) ? value : !value;
-                if (litValue) {
-                    return true;
-                }
+            if (val != null) {
+                boolean litVal = (lit > 0) == val;
+                if (litVal) return true;
             }
         }
         return false;
     }
 
     /**
-     * Check if this clause is conflicting (all literals are false).
+     * Check if all literals evaluate to false.
      */
-    public boolean isConflicting(Assignment assignment) {
-        for (long lit : literals) {
-            long var = Math.abs(lit);
-            Boolean value = assignment.getValue(var);
+    public boolean isConflicting(Assignment assign) {
+        for (long lit : lits) {
+            long varId = Math.abs(lit);
+            Boolean val = assign.getValue(varId);
 
-            if (value == null) {
-                return false; // Unassigned literal, not a conflict yet
-            }
-
-            boolean litValue = (lit > 0) ? value : !value;
-            if (litValue) {
-                return false; // At least one literal is true
-            }
+            // If unassigned or true, not a conflict
+            if (val == null) return false;
+            boolean litVal = (lit > 0) == val;
+            if (litVal) return false;
         }
-        return true; // All literals are false
+        return true;
     }
 
     /**
-     * Get the unit literal if this clause is unit under the given assignment.
-     * A clause is unit if exactly one literal is unassigned and all others are false.
-     * Returns null if the clause is not unit.
+     * Returns the single unassigned literal if this is a unit clause.
      */
-    public Long getUnitLiteral(Assignment assignment) {
-        Long unassignedLit = null;
-        int unassignedCount = 0;
+    public Long getUnitLiteral(Assignment assign) {
+        Long unassigned = null;
+        int countUnassigned = 0;
 
-        for (long lit : literals) {
-            long var = Math.abs(lit);
-            Boolean value = assignment.getValue(var);
+        for (long lit : lits) {
+            long varId = Math.abs(lit);
+            Boolean val = assign.getValue(varId);
 
-            if (value == null) {
-                unassignedLit = lit;
-                unassignedCount++;
-                if (unassignedCount > 1) {
-                    return null; // More than one unassigned
-                }
+            if (val == null) {
+                unassigned = lit;
+                countUnassigned++;
+                if (countUnassigned > 1) return null;
             } else {
-                boolean litValue = (lit > 0) ? value : !value;
-                if (litValue) {
-                    return null; // Clause is already satisfied
-                }
+                boolean litVal = (lit > 0) == val;
+                if (litVal) return null; // Already satisfied
             }
         }
 
-        // Unit clause if exactly one unassigned literal
-        return (unassignedCount == 1) ? unassignedLit : null;
+        return (countUnassigned == 1) ? unassigned : null;
     }
 
     /**
-     * Check if this clause is a tautology (contains both x and ¬x).
+     * Detect tautology: contains both L and ¬L for some variable.
      */
     public boolean isTautology() {
-        Set<Long> vars = new HashSet<>();
-        for (long lit : literals) {
-            long var = Math.abs(lit);
-            if (vars.contains(-lit)) {
-                return true;
-            }
-            vars.add(lit);
+        Set<Long> seen = new HashSet<>();
+        for (long lit : lits) {
+            if (seen.contains(-lit)) return true;
+            seen.add(lit);
         }
         return false;
     }
 
     @Override
     public String toString() {
-        return literals.toString();
+        return lits.toString();
     }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Clause clause = (Clause) o;
-        return new HashSet<>(literals).equals(new HashSet<>(clause.literals));
+        if (!(o instanceof Clause)) return false;
+        Clause other = (Clause) o;
+        return new HashSet<>(lits).equals(new HashSet<>(other.lits));
     }
 
     @Override
     public int hashCode() {
-        return new HashSet<>(literals).hashCode();
+        return new HashSet<>(lits).hashCode();
     }
 }

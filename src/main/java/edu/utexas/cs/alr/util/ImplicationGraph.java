@@ -3,160 +3,134 @@ package edu.utexas.cs.alr.util;
 import java.util.*;
 
 /**
- * Performs conflict analysis using the implication graph.
- * The graph is represented implicitly via reason clauses in the assignment.
+ * Conflict analysis using First UIP scheme.
  */
 public class ImplicationGraph {
-    private final Assignment assignment;
+    private final Assignment assign;
 
     public ImplicationGraph(Assignment assignment) {
-        this.assignment = assignment;
+        this.assign = assignment;
     }
 
     /**
-     * Analyze a conflict and return the learned clause and backtrack level.
-     *
-     * Uses the First UIP (Unique Implication Point) scheme:
-     * - Start with the conflict clause
-     * - Resolve backward through the assignment trail
-     * - Stop when only one variable from the current decision level remains
-     *
-     * @param conflictClause The clause that caused the conflict
-     * @return A pair (learned clause, backtrack level)
+     * Analyze conflict and produce learned clause with backtrack level.
      */
-    public ConflictAnalysisResult analyzeConflict(Clause conflictClause) {
-        int currentLevel = assignment.getCurrentLevel();
+    public AnalysisResult analyzeConflict(Clause conflictClause) {
+        int curLevel = assign.getCurrentLevel();
 
-        // Start with the conflict clause itself (not negated)
-        Set<Long> learnedLiterals = new HashSet<>();
+        // Initialize with conflict clause
+        Set<Long> resolvent = new HashSet<>();
         for (long lit : conflictClause.getLiterals()) {
-            learnedLiterals.add(lit);
+            resolvent.add(lit);
         }
 
-        // Count variables at the current decision level
-        int currentLevelCount = countVariablesAtLevel(learnedLiterals, currentLevel);
+        // Count current-level variables
+        int curLevelVars = countAtLevel(resolvent, curLevel);
 
-        // Get the assignment trail
-        List<Long> trail = assignment.getTrail();
+        // Resolution until First UIP
+        List<Long> trail = assign.getTrail();
+        int idx = trail.size() - 1;
 
-        // Resolve backward until we have only one variable at the current level (First UIP)
-        int trailIndex = trail.size() - 1;
+        while (curLevelVars > 1 && idx >= 0) {
+            long v = trail.get(idx--);
 
-        while (currentLevelCount > 1 && trailIndex >= 0) {
-            long var = trail.get(trailIndex);
-            trailIndex--;
-
-            // Check if this variable is in the learned clause and at current level
-            if (assignment.getDecisionLevel(var) != currentLevel) {
+            // Skip if not at current level
+            if (assign.getDecisionLevel(v) != curLevel) {
                 continue;
             }
 
-            // Check if the variable (or its negation) is in the learned clause
-            boolean varInClause = learnedLiterals.contains(var) || learnedLiterals.contains(-var);
-            if (!varInClause) {
-                continue;
-            }
-
-            // Get the reason for this variable's assignment
-            Clause reason = assignment.getReason(var);
-            if (reason == null) {
-                // This is a decision variable, not a propagated one
-                continue;
-            }
-
-            // Resolve: remove the variable's literal from learned clause
-            // The learned clause contains a literal that conflicts with the reason clause
-            long litToRemove;
-            if (learnedLiterals.contains(var)) {
-                litToRemove = var;
+            // Find literal in resolvent
+            long litInResolvent = 0;
+            if (resolvent.contains(v)) {
+                litInResolvent = v;
+            } else if (resolvent.contains(-v)) {
+                litInResolvent = -v;
             } else {
-                litToRemove = -var;
+                continue;
             }
 
-            learnedLiterals.remove(litToRemove);
-            currentLevelCount--;
+            // Get antecedent
+            Clause ant = assign.getReason(v);
+            if (ant == null) continue; // Decision variable
 
-            // Add other literals from the reason clause (resolution)
-            for (long reasonLit : reason.getLiterals()) {
-                long reasonVar = Math.abs(reasonLit);
-                if (reasonVar != var) {
-                    // Add the literal directly (not negated) for resolution
-                    if (!learnedLiterals.contains(reasonLit) && !learnedLiterals.contains(-reasonLit)) {
-                        learnedLiterals.add(reasonLit);
-                        if (assignment.getDecisionLevel(reasonVar) == currentLevel) {
-                            currentLevelCount++;
+            // Resolve
+            resolvent.remove(litInResolvent);
+            curLevelVars--;
+
+            for (long antLit : ant.getLiterals()) {
+                long antVar = Math.abs(antLit);
+                if (antVar != v) {
+                    if (!resolvent.contains(antLit) && !resolvent.contains(-antLit)) {
+                        resolvent.add(antLit);
+                        if (assign.getDecisionLevel(antVar) == curLevel) {
+                            curLevelVars++;
                         }
                     }
                 }
             }
         }
 
-        // Create the learned clause
-        Clause learnedClause = new Clause(new ArrayList<>(learnedLiterals));
+        // Build learned clause
+        Clause learned = new Clause(new ArrayList<>(resolvent));
 
-        // Compute the backtrack level (second-highest decision level in the learned clause)
-        int backtrackLevel = computeBacktrackLevel(learnedLiterals, currentLevel);
+        // Compute backtrack level
+        int btLevel = computeBackjumpLevel(resolvent, curLevel);
 
-        return new ConflictAnalysisResult(learnedClause, backtrackLevel);
+        return new AnalysisResult(learned, btLevel);
     }
 
     /**
-     * Count how many variables in the literal set are at the given decision level.
+     * Count variables at given level.
      */
-    private int countVariablesAtLevel(Set<Long> literals, int level) {
-        int count = 0;
+    private int countAtLevel(Set<Long> literals, int level) {
+        int cnt = 0;
         for (long lit : literals) {
-            long var = Math.abs(lit);
-            Integer varLevel = assignment.getDecisionLevel(var);
-            if (varLevel != null && varLevel == level) {
-                count++;
+            long v = Math.abs(lit);
+            Integer lvl = assign.getDecisionLevel(v);
+            if (lvl != null && lvl == level) {
+                cnt++;
             }
         }
-        return count;
+        return cnt;
     }
 
     /**
-     * Compute the backtrack level (second-highest decision level in the clause).
-     * If there's only one level, backtrack to level 0.
+     * Compute backjump level (second highest).
      */
-    private int computeBacktrackLevel(Set<Long> literals, int currentLevel) {
-        Set<Integer> levels = new HashSet<>();
+    private int computeBackjumpLevel(Set<Long> literals, int curLevel) {
+        Set<Integer> levelsSet = new HashSet<>();
 
         for (long lit : literals) {
-            long var = Math.abs(lit);
-            Integer level = assignment.getDecisionLevel(var);
-            if (level != null) {
-                levels.add(level);
+            long v = Math.abs(lit);
+            Integer lvl = assign.getDecisionLevel(v);
+            if (lvl != null) {
+                levelsSet.add(lvl);
             }
         }
 
-        // Remove the current level and find the maximum
-        List<Integer> sortedLevels = new ArrayList<>(levels);
-        Collections.sort(sortedLevels, Collections.reverseOrder());
+        List<Integer> levels = new ArrayList<>(levelsSet);
+        Collections.sort(levels, Collections.reverseOrder());
 
-        if (sortedLevels.size() <= 1) {
-            return 0; // Backtrack to level 0
+        if (levels.size() <= 1) return 0;
+
+        // Return second highest (or highest if not current)
+        if (levels.get(0) == curLevel && levels.size() > 1) {
+            return levels.get(1);
         }
 
-        // Return the second-highest level
-        // If the highest is the current level, return the second one
-        if (sortedLevels.get(0) == currentLevel && sortedLevels.size() > 1) {
-            return sortedLevels.get(1);
-        }
-
-        return sortedLevels.get(0);
+        return levels.get(0);
     }
 
     /**
-     * Result of conflict analysis.
+     * Result container for conflict analysis.
      */
-    public static class ConflictAnalysisResult {
+    public static class AnalysisResult {
         public final Clause learnedClause;
         public final int backtrackLevel;
 
-        public ConflictAnalysisResult(Clause learnedClause, int backtrackLevel) {
-            this.learnedClause = learnedClause;
-            this.backtrackLevel = backtrackLevel;
+        public AnalysisResult(Clause clause, int level) {
+            this.learnedClause = clause;
+            this.backtrackLevel = level;
         }
     }
 }

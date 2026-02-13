@@ -6,62 +6,46 @@ import java.util.*;
 
 public class SatUtil {
     /**
-     * Check if a CNF formula is satisfiable using CDCL.
-     *
-     * @param expr A CNF formula
-     * @return true if SAT, false if UNSAT
+     * SAT checking using CDCL algorithm.
      */
     public static boolean checkSAT(Expr expr) {
-        // Verify the expression is in CNF
+        // Validate CNF format
         if (!ExprUtils.isCNF(expr)) {
-            throw new IllegalArgumentException("Expression must be in CNF format");
+            throw new IllegalArgumentException("Input must be in CNF format");
         }
 
-        // Extract clauses and variables from the expression
-        Set<Long> variables = new HashSet<>();
-        List<Clause> clauses = extractClauses(expr, variables);
+        // Extract problem data
+        Set<Long> vars = new HashSet<>();
+        List<Clause> clauses = buildClauseList(expr, vars);
 
-        // Handle edge cases
-        if (clauses.isEmpty()) {
-            // Empty formula is SAT
-            return true;
+        // Handle trivial cases
+        if (clauses.isEmpty()) return true;
+
+        for (Clause c : clauses) {
+            if (c.isEmpty()) return false;
         }
 
-        // Check for empty clauses (immediately UNSAT)
-        for (Clause clause : clauses) {
-            if (clause.isEmpty()) {
-                return false;
+        // Remove tautologies
+        List<Clause> filtered = new ArrayList<>();
+        for (Clause c : clauses) {
+            if (!c.isTautology()) {
+                filtered.add(c);
             }
         }
 
-        // Filter out tautology clauses (they're always satisfied)
-        List<Clause> filteredClauses = new ArrayList<>();
-        for (Clause clause : clauses) {
-            if (!clause.isTautology()) {
-                filteredClauses.add(clause);
-            }
-        }
+        if (filtered.isEmpty()) return true;
 
-        if (filteredClauses.isEmpty()) {
-            // All clauses are tautologies
-            return true;
-        }
-
-        // Create and run the CDCL solver
-        CDCLSolver solver = new CDCLSolver(filteredClauses, variables);
+        // Run CDCL
+        CDCLSolver solver = new CDCLSolver(filtered, vars);
         return solver.solve();
     }
 
     /**
-     * Extract all clauses from a CNF expression.
-     *
-     * @param expr      The CNF expression
-     * @param variables Set to collect all variables (modified in place)
-     * @return List of clauses
+     * Extract clauses from CNF expression.
      */
-    private static List<Clause> extractClauses(Expr expr, Set<Long> variables) {
-        List<Clause> clauses = new ArrayList<>();
-        Stack<Expr> stack = new Stack<>();
+    private static List<Clause> buildClauseList(Expr expr, Set<Long> vars) {
+        List<Clause> result = new ArrayList<>();
+        Deque<Expr> stack = new ArrayDeque<>();
         stack.push(expr);
 
         while (!stack.isEmpty()) {
@@ -69,44 +53,38 @@ public class SatUtil {
 
             switch (e.getKind()) {
                 case AND:
-                    // AND node: push both children
-                    AndExpr andExpr = (AndExpr) e;
-                    stack.push(andExpr.getLeft());
-                    stack.push(andExpr.getRight());
+                    AndExpr and = (AndExpr) e;
+                    stack.push(and.getRight());
+                    stack.push(and.getLeft());
                     break;
 
                 case OR:
-                    // OR node: extract clause
-                    OrExpr orExpr = (OrExpr) e;
-                    Set<Long> literals = ExprUtils.getLiteralsForClause(orExpr, variables);
-                    clauses.add(new Clause(literals));
+                    OrExpr or = (OrExpr) e;
+                    Set<Long> lits = ExprUtils.getLiteralsForClause(or, vars);
+                    result.add(new Clause(lits));
                     break;
 
                 case VAR:
-                    // Single positive literal
-                    VarExpr varExpr = (VarExpr) e;
-                    long varId = varExpr.getId();
-                    variables.add(varId);
-                    clauses.add(new Clause(Collections.singletonList(varId)));
+                    VarExpr var = (VarExpr) e;
+                    vars.add(var.getId());
+                    result.add(new Clause(Collections.singletonList(var.getId())));
                     break;
 
                 case NEG:
-                    // Single negative literal
-                    NegExpr negExpr = (NegExpr) e;
-                    if (negExpr.getExpr().getKind() != Expr.ExprKind.VAR) {
-                        throw new IllegalArgumentException("Expression is not in CNF");
+                    NegExpr neg = (NegExpr) e;
+                    if (neg.getExpr().getKind() != Expr.ExprKind.VAR) {
+                        throw new IllegalArgumentException("Not in CNF");
                     }
-                    VarExpr negVarExpr = (VarExpr) negExpr.getExpr();
-                    long negVarId = negVarExpr.getId();
-                    variables.add(negVarId);
-                    clauses.add(new Clause(Collections.singletonList(-negVarId)));
+                    VarExpr negVar = (VarExpr) neg.getExpr();
+                    vars.add(negVar.getId());
+                    result.add(new Clause(Collections.singletonList(-negVar.getId())));
                     break;
 
                 default:
-                    throw new IllegalArgumentException("Unexpected expression type: " + e.getKind());
+                    throw new IllegalArgumentException("Unexpected: " + e.getKind());
             }
         }
 
-        return clauses;
+        return result;
     }
 }

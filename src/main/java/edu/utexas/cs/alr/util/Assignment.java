@@ -3,185 +3,172 @@ package edu.utexas.cs.alr.util;
 import java.util.*;
 
 /**
- * Tracks variable assignments, decision levels, and reasons for propagations.
+ * Variable assignment tracker with decision level management.
  */
 public class Assignment {
-    // Variable assignments: var_id -> Boolean value
-    private final Map<Long, Boolean> assignments;
+    // Core assignment data
+    private final Map<Long, Boolean> values;
+    private final Map<Long, Integer> levels;
+    private final Map<Long, Clause> antecedents;
+    private final List<Long> history;
 
-    // Decision level for each variable
-    private final Map<Long, Integer> decisionLevels;
+    // Problem variables
+    private final Set<Long> vars;
 
-    // Reason clause for each implied assignment (null for decisions)
-    private final Map<Long, Clause> reasons;
-
-    // Assignment trail (chronological order)
-    private final List<Long> trail;
-
-    // Current decision level
-    private int currentLevel;
-
-    // Set of all variables in the problem
-    private final Set<Long> allVariables;
+    // Current decision depth
+    private int depth;
 
     public Assignment(Set<Long> variables) {
-        this.allVariables = new HashSet<>(variables);
-        this.assignments = new HashMap<>();
-        this.decisionLevels = new HashMap<>();
-        this.reasons = new HashMap<>();
-        this.trail = new ArrayList<>();
-        this.currentLevel = 0;
+        this.vars = new HashSet<>(variables);
+        this.values = new HashMap<>();
+        this.levels = new HashMap<>();
+        this.antecedents = new HashMap<>();
+        this.history = new ArrayList<>();
+        this.depth = 0;
     }
 
     /**
-     * Make a decision assignment (increment decision level).
+     * Decision: assign variable and increment level.
      */
-    public void decide(long var, boolean value) {
-        currentLevel++;
-        assign(var, value, null);
+    public void decide(long varId, boolean value) {
+        depth++;
+        setVariable(varId, value, null);
     }
 
     /**
-     * Make a propagated assignment (keep current decision level).
+     * Propagation: assign variable at current level.
      */
-    public void propagate(long var, boolean value, Clause reason) {
-        assign(var, value, reason);
+    public void propagate(long varId, boolean value, Clause reason) {
+        setVariable(varId, value, reason);
     }
 
     /**
-     * Internal method to assign a variable.
+     * Internal: record variable assignment.
      */
-    private void assign(long var, boolean value, Clause reason) {
-        if (assignments.containsKey(var)) {
-            throw new IllegalStateException("Variable " + var + " is already assigned");
+    private void setVariable(long varId, boolean value, Clause reason) {
+        if (values.containsKey(varId)) {
+            throw new IllegalStateException("Variable already assigned: " + varId);
         }
 
-        assignments.put(var, value);
-        decisionLevels.put(var, currentLevel);
-        reasons.put(var, reason);
-        trail.add(var);
+        values.put(varId, value);
+        levels.put(varId, depth);
+        antecedents.put(varId, reason);
+        history.add(varId);
     }
 
     /**
-     * Get the value of a variable (null if unassigned).
+     * Get variable's current value.
      */
-    public Boolean getValue(long var) {
-        return assignments.get(var);
+    public Boolean getValue(long varId) {
+        return values.get(varId);
     }
 
     /**
-     * Get the decision level of a variable.
+     * Get variable's decision level.
      */
-    public Integer getDecisionLevel(long var) {
-        return decisionLevels.get(var);
+    public Integer getDecisionLevel(long varId) {
+        return levels.get(varId);
     }
 
     /**
-     * Get the reason clause for a variable's assignment.
+     * Get reason clause for propagated variable.
      */
-    public Clause getReason(long var) {
-        return reasons.get(var);
+    public Clause getReason(long varId) {
+        return antecedents.get(varId);
     }
 
     /**
-     * Check if a variable is assigned.
+     * Check if variable is assigned.
      */
-    public boolean isAssigned(long var) {
-        return assignments.containsKey(var);
+    public boolean isAssigned(long varId) {
+        return values.containsKey(varId);
     }
 
     /**
      * Check if all variables are assigned.
      */
     public boolean isComplete() {
-        return assignments.size() == allVariables.size();
+        return values.size() == vars.size();
     }
 
     /**
-     * Get the current decision level.
+     * Get current decision level.
      */
     public int getCurrentLevel() {
-        return currentLevel;
+        return depth;
     }
 
     /**
-     * Get the assignment trail.
+     * Get assignment trail.
      */
     public List<Long> getTrail() {
-        return Collections.unmodifiableList(trail);
+        return Collections.unmodifiableList(history);
     }
 
     /**
-     * Get all assigned variables.
+     * Get assigned variables.
      */
     public Set<Long> getAssignedVariables() {
-        return new HashSet<>(assignments.keySet());
+        return new HashSet<>(values.keySet());
     }
 
     /**
-     * Get all unassigned variables.
+     * Get unassigned variables.
      */
     public Set<Long> getUnassignedVariables() {
-        Set<Long> unassigned = new HashSet<>(allVariables);
-        unassigned.removeAll(assignments.keySet());
-        return unassigned;
+        Set<Long> result = new HashSet<>(vars);
+        result.removeAll(values.keySet());
+        return result;
     }
 
     /**
-     * Backtrack to the given decision level.
-     * All assignments made after this level are undone.
+     * Non-chronological backtracking to target level.
      */
     public void backtrack(int targetLevel) {
-        if (targetLevel < 0 || targetLevel > currentLevel) {
-            throw new IllegalArgumentException("Invalid target level: " + targetLevel);
+        if (targetLevel < 0 || targetLevel > depth) {
+            throw new IllegalArgumentException("Invalid backtrack level: " + targetLevel);
         }
 
-        // Remove assignments from the trail in reverse order
-        while (!trail.isEmpty()) {
-            long var = trail.get(trail.size() - 1);
-            int level = decisionLevels.get(var);
+        // Undo assignments in reverse order
+        while (!history.isEmpty()) {
+            long varId = history.get(history.size() - 1);
+            int lvl = levels.get(varId);
 
-            if (level <= targetLevel) {
-                break;
-            }
+            if (lvl <= targetLevel) break;
 
-            trail.remove(trail.size() - 1);
-            assignments.remove(var);
-            decisionLevels.remove(var);
-            reasons.remove(var);
+            history.remove(history.size() - 1);
+            values.remove(varId);
+            levels.remove(varId);
+            antecedents.remove(varId);
         }
 
-        currentLevel = targetLevel;
+        depth = targetLevel;
     }
 
     /**
-     * Get variables assigned at a specific decision level.
+     * Get variables assigned at specific level.
      */
     public List<Long> getVariablesAtLevel(int level) {
-        List<Long> vars = new ArrayList<>();
-        for (long var : trail) {
-            if (decisionLevels.get(var) == level) {
-                vars.add(var);
+        List<Long> result = new ArrayList<>();
+        for (long varId : history) {
+            if (levels.get(varId) == level) {
+                result.add(varId);
             }
         }
-        return vars;
+        return result;
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Assignment(level=").append(currentLevel).append(", assignments={");
-        for (long var : trail) {
-            sb.append("x").append(var).append("=").append(assignments.get(var));
-            sb.append("@L").append(decisionLevels.get(var));
-            if (reasons.get(var) != null) {
-                sb.append("[propagated]");
-            } else {
-                sb.append("[decision]");
-            }
-            sb.append(", ");
+        sb.append("Assignment[level=").append(depth).append(", vars={");
+        for (long varId : history) {
+            sb.append("x").append(varId).append("=").append(values.get(varId));
+            sb.append("@").append(levels.get(varId));
+            sb.append(antecedents.get(varId) != null ? "(P)" : "(D)");
+            sb.append(" ");
         }
-        sb.append("})");
+        sb.append("}]");
         return sb.toString();
     }
 }

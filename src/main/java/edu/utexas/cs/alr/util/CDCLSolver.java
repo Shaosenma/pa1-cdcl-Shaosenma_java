@@ -3,143 +3,127 @@ package edu.utexas.cs.alr.util;
 import java.util.*;
 
 /**
- * CDCL (Conflict-Driven Clause Learning) SAT Solver.
+ * CDCL SAT solver implementation.
  */
 public class CDCLSolver {
-    private final List<Clause> clauses;
+    private final List<Clause> originalClauses;
+    private final List<Clause> learnedClauses;
     private final Set<Long> variables;
     private final Assignment assignment;
     private final DecisionHeuristic heuristic;
-    private final ImplicationGraph implGraph;
+    private final ImplicationGraph graph;
 
-    // Learned clauses
-    private final List<Clause> learnedClauses;
-
-    public CDCLSolver(List<Clause> clauses, Set<Long> variables) {
-        this.clauses = new ArrayList<>(clauses);
-        this.variables = new HashSet<>(variables);
-        this.assignment = new Assignment(variables);
-        this.heuristic = new DecisionHeuristic(variables);
-        this.implGraph = new ImplicationGraph(assignment);
+    public CDCLSolver(List<Clause> clauses, Set<Long> vars) {
+        this.originalClauses = new ArrayList<>(clauses);
         this.learnedClauses = new ArrayList<>();
+        this.variables = new HashSet<>(vars);
+        this.assignment = new Assignment(vars);
+        this.heuristic = new DecisionHeuristic(vars);
+        this.graph = new ImplicationGraph(assignment);
     }
 
     /**
-     * Main CDCL solving algorithm.
-     * Returns true if SAT, false if UNSAT.
+     * Main CDCL search loop.
      */
     public boolean solve() {
-        // Initial unit propagation at level 0
-        Clause conflict = unitPropagate();
-        if (conflict != null) {
-            // Conflict at level 0 means UNSAT
-            return false;
-        }
+        // Initial BCP at level 0
+        Clause conflict = propagate();
+        if (conflict != null) return false;
 
-        // Main CDCL loop
+        // Main search
         while (true) {
-            // Check if all variables are assigned
+            // Check for complete assignment
             if (assignment.isComplete()) {
-                return true; // SAT
-            }
-
-            // Make a decision
-            Long var = heuristic.chooseVariable(assignment);
-            if (var == null) {
-                // Should not happen if assignment is not complete
                 return true;
             }
 
-            boolean value = heuristic.chooseValue(var);
-            assignment.decide(var, value);
+            // Make decision
+            Long var = heuristic.chooseVariable(assignment);
+            if (var == null) return true;
 
-            // Unit propagate
-            conflict = unitPropagate();
+            boolean val = heuristic.chooseValue(var);
+            assignment.decide(var, val);
 
-            // Handle conflicts
+            // Propagate and handle conflicts
+            conflict = propagate();
             while (conflict != null) {
                 if (assignment.getCurrentLevel() == 0) {
-                    // Conflict at level 0 means UNSAT
-                    return false;
+                    return false; // UNSAT
                 }
 
-                // Analyze conflict
-                ImplicationGraph.ConflictAnalysisResult result = implGraph.analyzeConflict(conflict);
-                Clause learnedClause = result.learnedClause;
-                int backtrackLevel = result.backtrackLevel;
+                // Learn from conflict
+                ImplicationGraph.AnalysisResult result = graph.analyzeConflict(conflict);
+                learnedClauses.add(result.learnedClause);
 
-                // Learn the clause
-                learnedClauses.add(learnedClause);
-
-                // Bump activities of variables in the learned clause
-                heuristic.bumpActivities(learnedClause);
+                // Update heuristic
+                heuristic.bumpActivities(result.learnedClause);
                 heuristic.decayActivities();
 
                 // Backtrack
-                if (backtrackLevel < 0) {
-                    return false; // UNSAT
+                if (result.backtrackLevel < 0) {
+                    return false;
                 }
-                assignment.backtrack(backtrackLevel);
+                assignment.backtrack(result.backtrackLevel);
 
-                // Unit propagate with the learned clause
-                conflict = unitPropagate();
+                // Continue propagation
+                conflict = propagate();
             }
         }
     }
 
     /**
-     * Boolean Constraint Propagation (BCP) - Unit Propagation.
-     * Returns a conflict clause if a conflict is detected, null otherwise.
+     * Boolean Constraint Propagation.
      */
-    private Clause unitPropagate() {
-        boolean changed = true;
+    private Clause propagate() {
+        boolean hasChange = true;
 
-        while (changed) {
-            changed = false;
+        while (hasChange) {
+            hasChange = false;
 
-            // Check all clauses (original + learned)
-            List<Clause> allClauses = new ArrayList<>(clauses);
-            allClauses.addAll(learnedClauses);
-
-            for (Clause clause : allClauses) {
-                // Skip if clause is already satisfied
-                if (clause.isSatisfied(assignment)) {
+            // Check all clauses
+            for (Clause c : getAllClauses()) {
+                // Skip satisfied clauses
+                if (c.isSatisfied(assignment)) {
                     continue;
                 }
 
-                // Check for conflict
-                if (clause.isConflicting(assignment)) {
-                    return clause; // Return the conflict clause
+                // Detect conflict
+                if (c.isConflicting(assignment)) {
+                    return c;
                 }
 
-                // Check for unit clause
-                Long unitLit = clause.getUnitLiteral(assignment);
+                // Unit propagation
+                Long unitLit = c.getUnitLiteral(assignment);
                 if (unitLit != null) {
                     long var = Math.abs(unitLit);
-                    boolean value = (unitLit > 0);
-
-                    // Propagate the unit literal
-                    assignment.propagate(var, value, clause);
-                    changed = true;
-
-                    // After propagation, check for immediate conflicts
-                    // This will be caught in the next iteration
+                    boolean val = (unitLit > 0);
+                    assignment.propagate(var, val, c);
+                    hasChange = true;
                 }
             }
         }
 
-        return null; // No conflict
+        return null;
     }
 
     /**
-     * Get the current assignment (for debugging/testing).
+     * Get all clauses (original + learned).
+     */
+    private List<Clause> getAllClauses() {
+        List<Clause> all = new ArrayList<>(originalClauses);
+        all.addAll(learnedClauses);
+        return all;
+    }
+
+    /**
+     * Get current assignment.
      */
     public Assignment getAssignment() {
         return assignment;
     }
 
     /**
-     * Get the number of learned clauses.
+     * Get learned clause count.
      */
     public int getLearnedClauseCount() {
         return learnedClauses.size();
